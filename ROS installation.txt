@@ -1,0 +1,105 @@
+# Add ROS repo
+sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
+sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654
+sudo apt-get -y update
+sudo apt-get -y upgrade
+
+# Install dependencies (1-2 minutes)
+sudo apt-get install -y python-rosdep python-rosinstall-generator python-wstool python-rosinstall build-essential cmake
+
+# Initialize rosdep
+sudo rosdep init
+rosdep update
+
+#On Jetson Nano, simply use the following command to install ROS-Melodic (5 minutes)
+#To compile from sources for a newer version or on RPi (32-bit), follow the steps at the bottom of this guide. 
+
+sudo apt install ros-melodic-desktop
+
+#Source the bash. Otherwise, have to run this command everytime a new command window is opened. 
+echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc
+
+# Initialize a user workspace ~/catkin_ws. Simulink uses this by default to generate code for new nodes. This reduces compile time for these nodes. Use the main ws to add new packages to the existing ROS distribution. Tried adding RPLIDAR and ROSARIA using this ws through sources and it indeed is faster because of fewer nodes and doesn't need all the installed packages to be recompiled everytime.
+mkdir -p ~/catkin_ws/src
+cd ~/catkin_ws/src
+catkin_init_workspace
+#Build this ws using the following commands. This builds in "build" folder while "catkin_make_isolated" builds in "build_isolated".
+cd ~/catkin_ws/
+catkin_make
+echo "source ~/catkin_ws/devel/setup.bash" >> ~/.bashrc
+#If this above command for source is not run, then the packages in this workspace won't be able to run using rosrun command. 
+
+Also put the following lines in the "~/.bashrc"
+export ROS_MASTER_URI=http://192.168.4.100:11311
+export ROS_HOSTNAME=192.168.4.100
+Set a fixed IP for the system because a different IP means exporting a different IP everytime. Not exporting ROS_MASTER and HOSTNAME may lead to problems.
+
+#Install RPLIDAR
+cd ~/catkin_ws/src
+sudo git clone  https://github.com/Slamtec/rplidar_ros.git
+cd ..
+catkin_make
+#Test using the following command
+roslaunch rplidar_ros rplidar.launch
+
+# Install ROSARIA
+
+mkdir -p ~/Aria
+cd ~/Aria
+git clone https://github.com/cinvesrob/Aria.git
+cd ~/Aria
+make -j4
+sudo make install
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/Aria
+sudo ldconfig
+
+cd ~/catkin_ws/src
+sudo git clone https://github.com/amor-ros-pkg/rosaria.git
+Rosaria has a motor velocity timeout of 0.6 seconds (hard-coded) although the documentation says that it can be set through arguments. So, recompile the rosaria node after commenting the functionality of setting the motor speed zero inside the timeout function (cmdvel_watchdog).
+
+cd..
+catkin_make 
+
+
+#To compile from source (e.g. on RPi or newer version Noetic), use the following steps
+
+Tested only on Buster and does not work on the latest bullseye version of Raspbian. 
+Tested on Jetson Nano
+
+mkdir -p ~/ros_catkin_ws
+cd ~/ros_catkin_ws
+
+#Make a new rosinstall file containing the required packages/sources. 'ros_comm' is the most basic one. Add others e.g. nav_msgs and tf etc. Some of these in the below command could be unnecessary. 
+rosinstall_generator ros_comm ros_control joystick_drivers dynamic_reconfigure geometry_msgs message_generation nav_msgs roscpp sensor_msgs std_msgs std_srvs tf --rosdistro noetic --deps --wet-only --tar > noetic-custom-ros.rosinstall
+wstool init src noetic-custom-ros.rosinstall -j8
+
+# If wstool init fails or is interrupted, you can resume the download by running, 
+wstool update -j4 -t src
+Otherwise wstool init will require downloading from start.
+
+#Resolve all dependencies (15-30 min. based on the number of packages and power supply)
+rosdep install -y --from-paths src --ignore-src --rosdistro noetic -r --os=debian:buster
+# This message will appear if all good: All required rosdeps installed successfully
+
+#Increase swap space.
+sudo dphys-swapfile swapoff
+sudo nano /etc/dphys-swapfile
+Change CONF_SWAPSIZE=1024
+sudo dphys-swapfile setup
+Check swap using free -m
+
+#Build the packages (30-60 min. based on the number of packages and power supply)
+sudo src/catkin/bin/catkin_make_isolated --install -DCMAKE_BUILD_TYPE=Release --install-space /opt/ros/noetic -j4 -DPYTHON_EXECUTABLE=/usr/bin/python3
+#use -j2 if run into problems or -j1
+
+
+#At this stage, ROS installation is complete. 
+#Decrease swap space. Important!!!!
+
+#In order to add further ROS packages, make a new rosinstall file to contain additional packages. E.g. 
+rosinstall_generator ros_comm MyNewPackage1 MyNewPackage2 --rosdistro noetic --deps --wet-only --tar > noetic-custom-ros-extra.rosinstall
+wstool merge -t src noetic-custom-ros-extra.rosinstall
+wstool update -j4 -t src
+rosdep install -y --from-paths src --ignore-src --rosdistro noetic -r --os=debian:buster
+sudo src/catkin/bin/catkin_make_isolated --install -DCMAKE_BUILD_TYPE=Release --install-space /opt/ros/noetic -j4 -DPYTHON_EXECUTABLE=/usr/bin/python3
+
