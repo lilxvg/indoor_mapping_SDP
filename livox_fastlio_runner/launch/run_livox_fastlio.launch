@@ -1,0 +1,16 @@
+<launch>
+    <!-- Run the custom shell script to handle the sequence -->
+    <node pkg="livox_fastlio_runner" type="wait_for_livox.sh" name="wait_for_livox" output="screen"/>
+
+    <!-- Run the joystick driver -->
+    <node pkg="joy" type="joy_node" name="joy_node" output="screen">
+        
+    </node>
+
+    <!-- Run the joystick to command velocity converter -->
+    <node pkg="joy_to_cmd_vel" type="joy_to_cmd_vel.py" name="joy_to_cmd_vel" output="screen">
+        
+    </node>
+
+    
+</launch>
